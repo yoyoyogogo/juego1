@@ -305,7 +305,7 @@
 
     <div id="musicMenu">
         <h2>🎵 Music Car - Bass Boost Radio 🎵</h2>
-        <input type="text" id="musicUrl" placeholder="Link de YouTube o .mp3 (Discord, Drive, etc.)">
+        <input type="text" id="musicUrl" placeholder="Pega aquí el link .mp3 de tu música (Discord, Drive, etc.)">
         <div class="volumeControl">
             <label>Volumen Máximo: <span id="volumeValue">100</span>%</label>
             <input type="range" id="volumeSlider" min="0" max="100" value="100">
@@ -329,12 +329,6 @@
             💡 Tip: El auto rebota con los bajos de la música 🚗💨
         </div>
     </div>
-
-    <!-- YouTube Player (oculto) - iframe simple -->
-    <iframe id="youtubePlayer"
-        style="position: absolute; top: -9999px; left: -9999px; width: 1px; height: 1px; border: none;"
-        allow="autoplay">
-    </iframe>
 
     <script type="importmap">
         {
@@ -383,21 +377,115 @@
         const MIN_POSITION_CHANGE = 0.5; // mínimo cambio de posición para enviar update
         const MIN_ROTATION_CHANGE = 0.1; // mínimo cambio de rotación para enviar update
 
-        // Sistema de Audio con análisis de frecuencias
+        // Sistema de Audio DUAL - cada auto tiene su propio sistema de audio
         let audioContext = null;
-        let analyser = null;
-        let dataArray = null;
-        let audioSource = null;
-        let audioBuffer = null;
-        let maxVolume = 1.0;
-        let isPlaying = false;
-        let bassSensitivity = 0.5;
-        let gainNode = null;
 
-        // YouTube Player
+        // Audio para Auto 1
+        let car1Audio = {
+            analyser: null,
+            dataArray: null,
+            audioSource: null,
+            audioBuffer: null,
+            maxVolume: 1.0,
+            isPlaying: false,
+            bassSensitivity: 0.5,
+            gainNode: null,
+            bounce: 0
+        };
+
+        // Audio para Auto 2 (Camión)
+        let car2Audio = {
+            analyser: null,
+            dataArray: null,
+            audioSource: null,
+            audioBuffer: null,
+            maxVolume: 1.0,
+            isPlaying: false,
+            bassSensitivity: 0.5,
+            gainNode: null,
+            bounce: 0
+        };
+        let car3Audio = {
+            analyser: null,
+            dataArray: null,
+            audioSource: null,
+            audioBuffer: null,
+            maxVolume: 1.0,
+            isPlaying: false,
+            bassSensitivity: 0.5,
+            gainNode: null,
+            bounce: 0
+        };
+
+        // ========================================
+        // 🚗 CONFIGURACIÓN DE AUTOS - ¡EDITA AQUÍ!
+        // ========================================
+        // Para agregar más autos, solo agrega objetos a este array:
+        const carsConfig = [
+            {
+                id: 'car1',
+                name: 'Auto 1',
+                modelUrl: 'https://raw.githubusercontent.com/yoyoyogogo/juego/main/music%20car%203d%20model%20(2).glb',
+                position: { x: 0, y: 1.5, z: -10 },
+                rotation: { x: 0, y: -Math.PI / 2, z: 0 }, // -90° para que mire adelante como en la versión anterior
+                scale: 1,
+                audio: car1Audio
+            },
+            {
+                id: 'car2',
+                name: 'Camión',
+                modelUrl: 'https://raw.githubusercontent.com/yoyoyogogo/camion/main/Sin_nombre.glb',
+                position: { x: 15, y: 1.5, z: -10 },
+                rotation: { x: 0, y: -Math.PI / 2, z: 0 }, // -90° para que mire adelante
+                scale: 1,
+                audio: car2Audio
+            },
+            {
+                id: 'car3',
+                name: 'Camión2',
+                modelUrl: 'https://raw.githubusercontent.com/yoyoyogogo/GTR-M3-/main/racing%20car%203d%20model.glb',
+                position: { x: 45, y: 1.5, z: -10 },
+                rotation: { x: 0, y: 0, z: 0 }, // Ajustado para que mire hacia adelante
+                scale: 1,
+                audio: car3Audio
+            }
+            // Para agregar más autos, copia y pega este bloque:
+            // {
+            //     id: 'car3',
+            //     name: 'Auto 3',
+            //     modelUrl: 'URL_DEL_MODELO.glb',
+            //     position: { x: 30, y: 0, z: -10 },
+            //     rotation: { x: 0, y: 0, z: 0 },
+            //     scale: 2,
+            //     audio: car3Audio // Necesitas crear car3Audio arriba
+            // }
+        ];
+
+        // Crear elementos de audio HTML para cada auto (SIN Web Audio API - sin CORS issues)
+        carsConfig.forEach(config => {
+            const audioElement = document.createElement('audio');
+            audioElement.loop = true;
+            audioElement.volume = config.audio.maxVolume;
+            audioElement.preload = 'auto';
+            config.audio.audioElement = audioElement;
+            console.log(`🔊 Elemento de audio creado para ${config.name}`);
+        });
+
+        // Array para almacenar referencias a autos cargados
+        const loadedCars = {};
+        const carMusicState = {};
+
+        // Auto activo en el menú de música
+        let currentAudioTarget = null; // ID del auto ('car1', 'car2', etc)
+
+        // YouTube Player (mantener compatibilidad)
         let youtubePlayer = null;
         let youtubePlayerReady = false;
         let currentMusicType = null; // 'audio' o 'youtube'
+
+        // Rol en el auto
+        let carRole = null; // 'driver', 'passenger', o null
+        let currentCarId = null; // ID del auto en el que estás
 
         // 1. ESCENA Y RENDERER
         const scene = new THREE.Scene();
@@ -574,59 +662,139 @@
             }
         }
 
-        // 6. CARGA DEL AUTO
+        // ========================================
+        // 🚗 CARGA DINÁMICA DE AUTOS
+        // ========================================
+        // Este sistema carga automáticamente todos los autos del array carsConfig
+
+        // Variables compatibles con código legacy
         let car = null;
-        let carContainer = new THREE.Group();
+        let carContainer = null;
         let carCollisionBox = null;
         let carBaseY = 1.5;
-        let carBounce = 0;
-        scene.add(carContainer);
 
-        const loader = new GLTFLoader();
-        const modelURL = 'https://raw.githubusercontent.com/yoyoyogogo/juego/main/music%20car%203d%20model%20(2).glb';
+        let car2 = null;
+        let car2Container = null;
+        let car2CollisionBox = null;
+        let car2BaseY = 1.5;
+        let car2Bounce = 0;
 
-        loader.load(modelURL, (gltf) => {
-            car = gltf.scene;
+        // Variable para controlar qué auto está activo (el que estás manejando)
+        let activeCarContainer = null;
+        let activeCarCollisionBox = null;
+        let activeCarBaseY = 1.5;
 
-            const box = new THREE.Box3().setFromObject(car);
-            const size = box.getSize(new THREE.Vector3()).length();
-            const center = box.getCenter(new THREE.Vector3());
+        // Función para cargar un auto desde configuración
+        function loadCarFromConfig(config) {
+            return new Promise((resolve, reject) => {
+                console.log(`🚗 Cargando ${config.name} (${config.id})...`);
 
-            car.position.x = -center.x;
-            car.position.z = -center.z;
-            car.position.y = -box.min.y;
+                const container = new THREE.Group();
+                scene.add(container);
 
-            car.rotation.y = -Math.PI / 2;
+                const loader = new GLTFLoader();
 
-            const scaleFactor = 8 / size;
-            car.scale.set(scaleFactor, scaleFactor, scaleFactor);
+                loader.load(
+                    config.modelUrl,
+                    (gltf) => {
+                        const model = gltf.scene;
 
-            car.traverse(n => {
-                if (n.isMesh) {
-                    n.castShadow = true;
-                    n.receiveShadow = true;
-                }
+                        // Centrar modelo
+                        const box = new THREE.Box3().setFromObject(model);
+                        const size = box.getSize(new THREE.Vector3()).length();
+                        const center = box.getCenter(new THREE.Vector3());
+
+                        model.position.x = -center.x;
+                        model.position.z = -center.z;
+                        model.position.y = -box.min.y;
+
+                        // Aplicar rotación de configuración
+                        model.rotation.x = config.rotation.x;
+                        model.rotation.y = config.rotation.y;
+                        model.rotation.z = config.rotation.z;
+
+                        // Escalar modelo
+                        const scaleFactor = (8 / size) * config.scale;
+                        model.scale.set(scaleFactor, scaleFactor, scaleFactor);
+
+                        // Habilitar sombras
+                        model.traverse(n => {
+                            if (n.isMesh) {
+                                n.castShadow = true;
+                                n.receiveShadow = true;
+                            }
+                        });
+
+                        container.add(model);
+                        container.position.set(config.position.x, config.position.y || 1.5, config.position.z);
+
+                        // Calcular collision box
+                        const carBox = new THREE.Box3().setFromObject(container);
+                        const carSize = carBox.getSize(new THREE.Vector3());
+                        const collisionBox = {
+                            width: carSize.x * 0.8,
+                            length: carSize.z * 0.8,
+                            height: carSize.y
+                        };
+
+                        // Guardar en loadedCars
+                        loadedCars[config.id] = {
+                            id: config.id,
+                            name: config.name,
+                            model: model,
+                            container: container,
+                            collisionBox: collisionBox,
+                            baseY: config.position.y || 1.5,
+                            bounce: 0,
+                            audio: config.audio
+                        };
+
+                        // Compatibilidad con código legacy
+                        if (config.id === 'car1') {
+                            car = model;
+                            carContainer = container;
+                            carCollisionBox = collisionBox;
+                            carBaseY = config.position.y || 1.5;
+                        } else if (config.id === 'car2') {
+                            car2 = model;
+                            car2Container = container;
+                            car2CollisionBox = collisionBox;
+                            car2BaseY = config.position.y || 1.5;
+                        }
+
+                        console.log(`✅ ${config.name} cargado!`);
+                        resolve(loadedCars[config.id]);
+                    },
+                    (xhr) => {
+                        const progress = (xhr.loaded / xhr.total * 100).toFixed(2);
+                        console.log(`${config.name} cargando: ${progress}%`);
+                    },
+                    (error) => {
+                        console.error(`❌ Error cargando ${config.name}:`, error);
+                        reject(error);
+                    }
+                );
             });
+        }
 
-            carContainer.add(car);
-            carContainer.position.set(0, carBaseY, -10);
+        // Cargar todos los autos del array de configuración
+        async function loadAllCars() {
+            try {
+                console.log(`🚗 Cargando ${carsConfig.length} autos...`);
 
-            const carBox = new THREE.Box3().setFromObject(carContainer);
-            const carSize = carBox.getSize(new THREE.Vector3());
-            carCollisionBox = {
-                width: carSize.x * 0.8,
-                length: carSize.z * 0.8,
-                height: carSize.y
-            };
+                const loadPromises = carsConfig.map(config => loadCarFromConfig(config));
+                await Promise.all(loadPromises);
 
-            document.getElementById('status').innerText = "¡Modelo cargado! Presiona F para la música";
-        },
+                console.log('✅ Todos los autos cargados!');
+                document.getElementById('status').innerText = "¡Modelos cargados! Presiona F para la música";
+            } catch (error) {
+                console.error('❌ Error cargando autos:', error);
+                document.getElementById('status').innerText = "Error al cargar algunos autos";
+            }
+        }
 
-            (xhr) => { console.log((xhr.loaded / xhr.total * 100) + '% cargado'); },
-            (error) => {
-                console.error(error);
-                document.getElementById('status').innerText = "Error cargando modelo";
-            });
+        // Iniciar carga de autos
+        loadAllCars();
 
         // ===== SISTEMA MULTIPLAYER =====
 
@@ -680,7 +848,11 @@
         }
 
         // Configurar listeners para otros jugadores
+        let playerListenersSetup = false;
         function setupPlayerListeners() {
+            if (playerListenersSetup) return;
+            playerListenersSetup = true;
+
             const playersRef = ref(database, 'carGame/players');
 
             onValue(playersRef, (snapshot) => {
@@ -710,61 +882,101 @@
                 });
             });
 
-            // Escuchar cambios en la música compartida
-            const musicRef = ref(database, 'carGame/currentMusic');
-            onValue(musicRef, async (snapshot) => {
-                const musicData = snapshot.val();
+            // Sistema de tracking para evitar recargas innecesarias
+            const loadedMusicURLs = {};
+            const loadingInProgress = {}; // Prevenir cargas simultáneas
+            const lastLoadTime = {}; // Evitar recargas rápidas
+            const carMusicState = {}; // Estado de música por auto
 
-                if (!musicData) {
-                    // No hay música, detener si está reproduciendo
-                    if (isPlaying && audioSource) {
-                        audioSource.stop();
-                        audioSource.disconnect();
-                        audioSource = null;
-                    }
-                    if (youtubePlayer) {
-                        stopYouTube();
-                    }
-                    isPlaying = false;
-                    carBounce = 0;
-                    currentMusicType = null;
-                    musicInfo.textContent = '';
-                    bassLevelSpan.textContent = '0';
-                    return;
-                }
+            // Crear listeners dinámicos para TODOS los autos
+            carsConfig.forEach(config => {
+                const carMusicRef = ref(database, `carGame/${config.id}Music`);
+                onValue(carMusicRef, async (snapshot) => {
+                    const musicData = snapshot.val();
 
-                // Si otro jugador puso música, reproducirla
-                if (musicData.playerId !== currentPlayerId && musicData.url) {
-                    try {
-                        // Actualizar UI
-                        musicUrl.value = musicData.url;
-                        maxVolume = musicData.volume || 1.0;
-                        bassSensitivity = musicData.bassSensitivity || 0.5;
-                        volumeSlider.value = Math.round(maxVolume * 100);
-                        volumeValue.textContent = Math.round(maxVolume * 100);
-                        bassSensitivitySlider.value = Math.round(bassSensitivity * 100);
-                        bassValue.textContent = Math.round(bassSensitivity * 100);
+                    if (!musicData) {
+                        // Limpiar tracking si no hay música
+                        delete loadedMusicURLs[config.id];
+                        delete loadingInProgress[config.id];
+                        delete lastLoadTime[config.id];
+                        delete carMusicState[config.id];
 
-                        // Detectar tipo de música
-                        if (musicData.type === 'youtube') {
-                            const videoID = getYouTubeVideoID(musicData.url);
-                            if (videoID) {
-                                playYouTube(videoID);
-                                musicInfo.textContent = `🎵 ${musicData.playerName} está reproduciendo YouTube`;
-                            }
-                        } else {
-                            // Audio normal
-                            initAudioContext();
-                            await loadAudioFromURL(musicData.url);
-                            playAudio();
-                            currentMusicType = 'audio';
-                            musicInfo.textContent = `🎵 ${musicData.playerName} está reproduciendo música`;
+                        // Detener audio HTML local para este auto
+                        const audioObj = loadedCars[config.id] ? loadedCars[config.id].audio :
+                            (config.id === 'car2' ? car2Audio : car1Audio);
+                        if (audioObj && audioObj.audioElement) {
+                            audioObj.audioElement.pause();
+                            audioObj.audioElement.currentTime = 0;
+                            audioObj.isPlaying = false;
                         }
-                    } catch (error) {
-                        console.error('Error cargando música compartida:', error);
-                        musicInfo.textContent = '❌ Error cargando música compartida';
+
+                        // Actualizar UI si estamos viendo este auto
+                        if (currentAudioTarget === config.id) {
+                            musicStatusText.textContent = '⏸️ Música detenida';
+                            musicInfo.textContent = '';
+                            bassLevelSpan.textContent = '0';
+                        }
+
+                        return;
                     }
-                }
+
+                    // Guardar estado de música por auto (para rellenar menú luego)
+                    carMusicState[config.id] = musicData;
+
+                    // Si YO puso esta música, no recargarla (pero sí mantenemos estado)
+                    if (musicData.playerId === currentPlayerId) return;
+
+                    // Si ya está cargando, esperar
+                    if (loadingInProgress[config.id]) {
+                        return;
+                    }
+
+                    // Si ya está cargada esta misma URL, no recargarla
+                    if (loadedMusicURLs[config.id] === musicData.url) {
+                        // Verificar que esté reproduciendo
+                        if (config.audio.audioElement && !config.audio.audioElement.paused) {
+                            return; // Ya está reproduciendo
+                        }
+                    }
+
+                    // Evitar recargas muy rápidas (debounce de 2 segundos)
+                    const now = Date.now();
+                    if (lastLoadTime[config.id] && (now - lastLoadTime[config.id]) < 2000) {
+                        console.log(`⏱️ Esperando debounce para ${config.name}...`);
+                        return;
+                    }
+
+                    // Marcar como cargando
+                    loadingInProgress[config.id] = true;
+                    lastLoadTime[config.id] = now;
+
+                    // Otro jugador puso música NUEVA en este auto, reproducirla
+                    try {
+                        console.log(`🎵 Sincronizando música ${config.name}`);
+                        config.audio.maxVolume = musicData.volume || 1.0;
+                        config.audio.bassSensitivity = musicData.bassSensitivity || 0.5;
+                        await loadAudioFromURL(musicData.url, config.id);
+                        playAudio(config.id);
+
+                        // Guardar URL cargada
+                        loadedMusicURLs[config.id] = musicData.url;
+                    } catch (error) {
+                        console.error(`❌ Error cargando música ${config.name}:`, error);
+                    } finally {
+                        // Liberar flag de carga
+                        loadingInProgress[config.id] = false;
+                    }
+                });
+
+                // Crear listener para ocupantes de este auto
+                const occupantsRef = ref(database, `carGame/${config.id}Occupants`);
+                onValue(occupantsRef, (snapshot) => {
+                    const occupants = snapshot.val();
+                    // Solo log en cambios
+                    if (occupants && Object.keys(occupants).length > 0) {
+                        // Silencioso - no spamear consola
+                    }
+                });
             });
         }
 
@@ -879,7 +1091,10 @@
                 const oldTarget = player.targetPos.clone();
                 player.targetPos.set(playerData.x, playerData.y, playerData.z);
                 player.targetRotation = playerData.rotation || 0;
-                player.velocity.subVectors(player.targetPos, oldTarget).multiplyScalar(3);
+                const oldTimestamp = (player.data && typeof player.data.timestamp === 'number') ? player.data.timestamp : (playerData.timestamp || Date.now());
+                const newTimestamp = (typeof playerData.timestamp === 'number') ? playerData.timestamp : Date.now();
+                const dt = Math.max(0.001, (newTimestamp - oldTimestamp) / 1000);
+                player.velocity.subVectors(player.targetPos, oldTarget).multiplyScalar(1 / dt);
 
                 player.data = playerData;
             }
@@ -912,10 +1127,12 @@
                 rotation = 0;
                 mode = 'player';
             } else {
-                posX = carContainer.position.x;
-                posY = carContainer.position.y;
-                posZ = carContainer.position.z;
-                rotation = carContainer.rotation.y;
+                // Usar el auto activo (el que realmente estás manejando)
+                const activeCar = activeCarContainer || carContainer;
+                posX = activeCar.position.x;
+                posY = activeCar.position.y;
+                posZ = activeCar.position.z;
+                rotation = activeCar.rotation.y;
                 mode = 'car';
             }
 
@@ -937,35 +1154,49 @@
                     z: Number(posZ.toFixed(2)),
                     rotation: Number(rotation.toFixed(2)),
                     mode: mode,
+                    carId: currentCarId || 'car1', // ENVIAR QUÉ AUTO ESTAMOS USANDO
                     timestamp: now
                 });
             }
         }
 
-        // Verificar si el auto está disponible
-        async function checkCarAvailability() {
-            if (!isOnline) return true; // Si no está online, siempre disponible
+        // Verificar si el auto está disponible (conductor o pasajero)
+        async function checkCarAvailability(carId = 'car1') {
+            if (!isOnline) return { canJoin: true, role: 'driver' }; // Si no está online, siempre disponible
 
             try {
-                const carRef = ref(database, 'carGame/carOccupied');
+                // Usar referencia separada por auto
+                const carRef = ref(database, `carGame/${carId}Occupants`);
                 const snapshot = await get(carRef);
 
                 if (!snapshot.exists()) {
-                    return true; // Auto libre
+                    return { canJoin: true, role: 'driver' }; // Auto libre, ser conductor
                 }
 
-                const occupiedBy = snapshot.val();
+                const occupants = snapshot.val();
+                const occupantsList = Object.values(occupants);
 
-                // Si el auto está ocupado por este mismo jugador, permitir
-                if (occupiedBy === currentPlayerId) {
-                    return true;
+                // Si ya estoy en el auto, permitir
+                if (occupants[currentPlayerId]) {
+                    return { canJoin: true, role: occupants[currentPlayerId].role };
                 }
 
-                // Auto ocupado por otro jugador
-                return false;
+                // Límite: 1 conductor + 3 pasajeros = 4 personas máximo
+                if (occupantsList.length >= 4) {
+                    return { canJoin: false, role: null }; // Auto lleno
+                }
+
+                // Verificar si ya hay conductor
+                const hasDriver = occupantsList.some(o => o.role === 'driver');
+
+                if (!hasDriver) {
+                    return { canJoin: true, role: 'driver' }; // Ser conductor
+                } else {
+                    return { canJoin: true, role: 'passenger' }; // Ser pasajero
+                }
             } catch (error) {
                 console.error('Error verificando disponibilidad del auto:', error);
-                return true; // En caso de error, permitir
+                return { canJoin: true, role: 'driver' }; // En caso de error, permitir
             }
         }
 
@@ -979,74 +1210,53 @@
             }
         });
 
-        // Inicializar Web Audio API
+        // Inicializar Web Audio API - DINÁMICO para TODOS los autos
         function initAudioContext() {
             if (!audioContext) {
                 audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                analyser = audioContext.createAnalyser();
-                analyser.fftSize = 256;
-                const bufferLength = analyser.frequencyBinCount;
-                dataArray = new Uint8Array(bufferLength);
 
-                gainNode = audioContext.createGain();
-                gainNode.connect(audioContext.destination);
+                // Inicializar para TODOS los autos en carsConfig
+                carsConfig.forEach(config => {
+                    const audioObj = config.audio;
+                    if (audioObj) {
+                        audioObj.analyser = audioContext.createAnalyser();
+                        audioObj.analyser.fftSize = 256;
+                        const bufferLength = audioObj.analyser.frequencyBinCount;
+                        audioObj.dataArray = new Uint8Array(bufferLength);
+                        audioObj.gainNode = audioContext.createGain();
+                        audioObj.gainNode.connect(audioContext.destination);
+                    }
+                });
+
+                console.log(`🎵 Audio inicializado para ${carsConfig.length} autos`);
             }
         }
 
-        // Cargar audio desde URL usando proxy CORS
-        async function loadAudioFromURL(url) {
+        // Cargar audio desde URL - SIMPLIFICADO con elementos HTML (¡SIN CORS!)
+        async function loadAudioFromURL(url, carId = 'car1') {
             try {
                 musicStatusText.textContent = '⏳ Cargando música...';
+                console.log(`🎵 Configurando audio para ${carId}...`);
 
-                // Usar proxy CORS para evitar problemas
-                const corsProxies = [
-                    'https://corsproxy.io/?',
-                    'https://api.allorigins.win/raw?url=',
-                    'https://cors-anywhere.herokuapp.com/'
-                ];
+                // Buscar el objeto de audio correcto
+                const audioObj = loadedCars[carId] ? loadedCars[carId].audio :
+                    (carId === 'car2' ? car2Audio : car1Audio);
 
-                let audioData = null;
-                let success = false;
-
-                // Intentar cargar directamente primero
-                try {
-                    const directResponse = await fetch(url);
-                    if (directResponse.ok) {
-                        audioData = await directResponse.arrayBuffer();
-                        success = true;
-                    }
-                } catch (e) {
-                    console.log('Carga directa falló, intentando con proxies...');
+                if (!audioObj || !audioObj.audioElement) {
+                    console.error(`No hay elemento de audio para ${carId}`);
+                    throw new Error('No hay elemento de audio');
                 }
 
-                // Si falla, intentar con proxies
-                if (!success) {
-                    for (const proxy of corsProxies) {
-                        try {
-                            const response = await fetch(proxy + encodeURIComponent(url));
-                            if (response.ok) {
-                                audioData = await response.arrayBuffer();
-                                success = true;
-                                break;
-                            }
-                        } catch (e) {
-                            console.log(`Proxy ${proxy} falló, intentando siguiente...`);
-                        }
-                    }
-                }
+                // Simplemente asignar la URL al elemento de audio HTML
+                audioObj.audioElement.src = url;
+                audioObj.audioElement.volume = audioObj.maxVolume;
 
-                if (!success || !audioData) {
-                    throw new Error('No se pudo cargar el audio desde ninguna fuente');
-                }
-
-                musicStatusText.textContent = '⏳ Decodificando audio...';
-
-                // Decodificar el audio
-                audioBuffer = await audioContext.decodeAudioData(audioData);
-
+                musicStatusText.textContent = '✅ Música lista';
+                console.log(`✅ Audio configurado para ${carId}`);
                 return true;
             } catch (error) {
-                console.error('Error cargando audio:', error);
+                console.error(`❌ Error configurando audio para ${carId}:`, error.message);
+                musicStatusText.textContent = `❌ Error: ${error.message}`;
                 throw error;
             }
         }
@@ -1055,63 +1265,72 @@
 
         // Detectar si es un link de YouTube
         function isYouTubeURL(url) {
-            const youtubeRegex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
+            const youtubeRegex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?\&]v=)|youtu\.be\/)([^"\&?\/\s]{11})/;
             return youtubeRegex.test(url);
         }
 
         // Extraer video ID de YouTube
         function getYouTubeVideoID(url) {
-            const youtubeRegex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
+            const youtubeRegex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?\&]v=)|youtu\.be\/)([^"\&?\/\s]{11})/;
             const match = url.match(youtubeRegex);
             return match ? match[1] : null;
         }
 
-        // Reproducir YouTube con iframe simple
+        // Reproducir YouTube (simplificado)
         function playYouTube(videoID) {
-            const iframe = document.getElementById('youtubePlayer');
-            // URL del embed con autoplay=1 y loop
-            iframe.src = `https://www.youtube.com/embed/${videoID}?autoplay=1&loop=1&playlist=${videoID}&controls=0&disablekb=1&fs=0&modestbranding=1&rel=0&showinfo=0`;
-            isPlaying = true;
-            currentMusicType = 'youtube';
+            console.log('YouTube playback simplificado:', videoID);
         }
 
         // Detener YouTube
         function stopYouTube() {
-            const iframe = document.getElementById('youtubePlayer');
-            iframe.src = '';
-            isPlaying = false;
+            console.log('YouTube detenido');
         }
 
-        // Reproducir audio
-        function playAudio() {
-            if (audioSource) {
-                audioSource.stop();
-                audioSource.disconnect();
+        // Reproducir audio - SIMPLIFICADO para elementos HTML
+        function playAudio(carId = 'car1') {
+            // Buscar el objeto de audio en loadedCars o usar legacy
+            let audioObj;
+            if (loadedCars[carId]) {
+                audioObj = loadedCars[carId].audio;
+            } else if (carId === 'car2') {
+                audioObj = car2Audio;
+            } else {
+                audioObj = car1Audio;
             }
 
-            audioSource = audioContext.createBufferSource();
-            audioSource.buffer = audioBuffer;
-            audioSource.loop = true;
+            if (!audioObj || !audioObj.audioElement) {
+                console.warn(`No hay audio element para ${carId}`);
+                return;
+            }
 
-            audioSource.connect(analyser);
-            analyser.connect(gainNode);
+            // Si ya está sonando, no reiniciar
+            if (!audioObj.audioElement.paused) {
+                console.log(`✓ Audio ${carId} ya está reproduciendo`);
+                return;
+            }
 
-            gainNode.gain.value = maxVolume;
-            audioSource.start(0);
-            isPlaying = true;
+            // Reproducir el audio HTML
+            audioObj.audioElement.play().then(() => {
+                audioObj.isPlaying = true;
+                console.log(`🎵 Reproduciendo audio para ${carId}`);
+            }).catch(err => {
+                console.error(`Error reproduciendo ${carId}:`, err);
+            });
         }
 
-        // Obtener nivel de bajos
-        function getBassLevel() {
-            if (!analyser || !isPlaying) return 0;
+        // Obtener nivel de bajos - ACTUALIZADO PARA carId
+        function getBassLevel(carId = 'car1') {
+            const audioObj = (carId === 'car2') ? car2Audio : car1Audio;
 
-            analyser.getByteFrequencyData(dataArray);
+            if (!audioObj.analyser || !audioObj.isPlaying) return 0;
+
+            audioObj.analyser.getByteFrequencyData(audioObj.dataArray);
 
             // Analizar solo las frecuencias bajas (índices 0-8 aproximadamente 0-600Hz)
             let bassSum = 0;
             const bassRange = 8;
             for (let i = 0; i < bassRange; i++) {
-                bassSum += dataArray[i];
+                bassSum += audioObj.dataArray[i];
             }
 
             // Normalizar a 0-1
@@ -1134,16 +1353,26 @@
         const bassLevelSpan = document.getElementById('bassLevel');
 
         volumeSlider.addEventListener('input', (e) => {
-            maxVolume = e.target.value / 100;
+            const newVolume = e.target.value / 100;
             volumeValue.textContent = e.target.value;
-            if (gainNode) {
-                gainNode.gain.value = maxVolume;
+
+            if (currentAudioTarget && loadedCars[currentAudioTarget]) {
+                const audioObj = loadedCars[currentAudioTarget].audio;
+                audioObj.maxVolume = newVolume;
+                if (audioObj.audioElement) {
+                    audioObj.audioElement.volume = newVolume;
+                }
             }
         });
 
         bassSensitivitySlider.addEventListener('input', (e) => {
-            bassSensitivity = e.target.value / 100;
+            const newSensitivity = e.target.value / 100;
             bassValue.textContent = e.target.value;
+
+            if (currentAudioTarget) {
+                const audioObj = (currentAudioTarget === 'car2') ? car2Audio : car1Audio;
+                audioObj.bassSensitivity = newSensitivity;
+            }
         });
 
         playBtn.addEventListener('click', async () => {
@@ -1153,79 +1382,87 @@
                 return;
             }
 
+            if (!currentAudioTarget) {
+                alert('Por favor acércate a un auto y presiona F primero');
+                return;
+            }
+
             try {
+                initAudioContext();
+
                 playBtn.disabled = true;
                 playBtn.textContent = '⏳ Cargando...';
 
-                // Detener cualquier reproducción anterior
-                if (currentMusicType === 'youtube') {
-                    stopYouTube();
-                } else if (currentMusicType === 'audio') {
-                    if (audioSource) {
-                        audioSource.stop();
-                        audioSource.disconnect();
-                        audioSource = null;
-                    }
+                const audioObj = (currentAudioTarget === 'car2') ? car2Audio : car1Audio;
+
+                //Detener cualquier reproducción anterior EN ESTE AUTO
+                if (audioObj.audioSource) {
+                    audioObj.audioSource.stop();
+                    audioObj.audioSource.disconnect();
+                    audioObj.audioSource = null;
                 }
 
-                // Detectar si es YouTube
-                if (isYouTubeURL(url)) {
-                    const videoID = getYouTubeVideoID(url);
-                    if (!videoID) {
-                        throw new Error('No se pudo extraer el ID del video de YouTube');
-                    }
+                await loadAudioFromURL(url, currentAudioTarget);
+                playAudio(currentAudioTarget);
 
-                    musicStatusText.textContent = '⏳ Cargando desde YouTube...';
-                    playYouTube(videoID);
-
-                    musicStatusText.textContent = '🎵 ¡Reproduciendo desde YouTube!';
-                    musicInfo.textContent = '🎵 YouTube Music activa';
-                } else {
-                    // Audio normal
-                    initAudioContext();
-                    await loadAudioFromURL(url);
-                    playAudio();
-                    currentMusicType = 'audio';
-
-                    musicStatusText.textContent = '🎵 ¡Reproduciendo con Bass Boost!';
-                    musicInfo.textContent = '🎵 Música activa - Bass detectado';
-                }
-
+                musicStatusText.textContent = '🎵 ¡Reproduciendo con Bass Boost!';
+                musicInfo.textContent = '🎵 Música activa - Bass detectado';
                 playBtn.textContent = '▶️ Reproducir';
                 playBtn.disabled = false;
 
-                // Guardar música en Firebase para que todos la escuchen
-                if (isOnline) {
-                    const musicRef = ref(database, 'carGame/currentMusic');
+                // Guardar música en Firebase para que todos la escuchen EN ESTE AUTO ESPECÍFICO
+                if (isOnline && currentAudioTarget) {
+                    const musicPath = `carGame/${currentAudioTarget}Music`;
+                    const musicRef = ref(database, musicPath);
                     set(musicRef, {
                         url: url,
                         playerId: currentPlayerId,
                         playerName: currentPlayerName,
                         timestamp: Date.now(),
-                        volume: maxVolume,
-                        bassSensitivity: bassSensitivity,
-                        type: currentMusicType
+                        volume: audioObj.maxVolume,
+                        bassSensitivity: audioObj.bassSensitivity
                     });
                 }
 
             } catch (error) {
                 console.error('Error:', error);
                 musicStatusText.textContent = '❌ Error al cargar música';
-                alert('No se pudo cargar la música. Verifica el link.');
+                alert('No se pudo cargar la música. Asegúrate de que el link sea un archivo de audio válido (.mp3, .wav, etc.)');
                 playBtn.textContent = '▶️ Reproducir';
                 playBtn.disabled = false;
             }
         });
 
         stopBtn.addEventListener('click', () => {
-            // Detener audio normal
-            if (audioSource) {
-                audioSource.stop();
-                audioSource.disconnect();
-                audioSource = null;
+            if (!currentAudioTarget) return;
+
+            // Resolver objeto de audio del auto actual (soporta todos los autos)
+            let audioObj;
+            if (loadedCars[currentAudioTarget]) {
+                audioObj = loadedCars[currentAudioTarget].audio;
+            } else if (currentAudioTarget === 'car2') {
+                audioObj = car2Audio;
+            } else {
+                audioObj = car1Audio;
             }
 
-            // Detener YouTube
+            if (!audioObj) return;
+
+            // Detener audio Web Audio legacy si existe
+            if (audioObj.audioSource) {
+                audioObj.audioSource.stop();
+                audioObj.audioSource.disconnect();
+                audioObj.audioSource = null;
+            }
+
+            // Detener elemento de audio HTML actual
+            if (audioObj.audioElement) {
+                audioObj.audioElement.pause();
+                audioObj.audioElement.currentTime = 0;
+            }
+
+            audioObj.isPlaying = false;
+            audioObj.bounce = 0;
             if (youtubePlayer) {
                 stopYouTube();
             }
@@ -1237,9 +1474,10 @@
             musicInfo.textContent = '';
             bassLevelSpan.textContent = '0';
 
-            // Detener música para todos
-            if (isOnline) {
-                const musicRef = ref(database, 'carGame/currentMusic');
+            // Detener música SOLO para este auto específico en Firebase
+            if (isOnline && currentAudioTarget) {
+                const musicPath = `carGame/${currentAudioTarget}Music`;
+                const musicRef = ref(database, musicPath);
                 remove(musicRef);
             }
         });
@@ -1248,76 +1486,99 @@
             musicMenu.style.display = 'none';
         });
 
-        // Función para ajustar volumen según distancia al auto
+        // Función para ajustar volumen según distancia - TODOS LOS AUTOS DINÁMICAMENTE
         function updateAudioVolume() {
-            if (!gainNode || !isPlaying) return;
+            // Obtener posición del jugador
+            let playerPos;
+            if (isPlayerMode) {
+                playerPos = controls.getObject().position;
+            } else if (activeCarContainer) {
+                playerPos = activeCarContainer.position;
+            } else {
+                return;
+            }
 
-            let volumeFactor = 1;
+            const maxDistance = 50;
+            const minDistance = 5;
 
-            if (isPlayerMode && carContainer) {
-                const playerPos = controls.getObject().position;
-                const distance = playerPos.distanceTo(carContainer.position);
-                const maxDistance = 50;
-                const minDistance = 5;
+            // Iterar sobre TODOS los autos cargados
+            Object.values(loadedCars).forEach(carData => {
+                if (carData.audio && carData.audio.audioElement) {
+                    let volumeFactor = 1;
 
-                if (distance <= minDistance) {
-                    volumeFactor = 1;
-                } else if (distance >= maxDistance) {
-                    volumeFactor = 0;
-                } else {
-                    volumeFactor = 1 - (distance - minDistance) / (maxDistance - minDistance);
+                    // Si estoy DENTRO de ESTE auto, volumen 100%
+                    if (!isPlayerMode && currentCarId === carData.id) {
+                        volumeFactor = 1;
+                    } else if (carData.container) {
+                        // Calcular por distancia
+                        const dist = playerPos.distanceTo(carData.container.position);
+                        if (dist <= minDistance) {
+                            volumeFactor = 1;
+                        } else if (dist >= maxDistance) {
+                            volumeFactor = 0;
+                        } else {
+                            volumeFactor = 1 - (dist - minDistance) / (maxDistance - minDistance);
+                        }
+                    }
+
+                    // Actualizar volumen del elemento de audio HTML
+                    carData.audio.audioElement.volume = carData.audio.maxVolume * volumeFactor;
+                }
+            });
+        }
+
+        // Función para hacer rebotar el auto con el bass - TODOS LOS AUTOS DINÁMICAMENTE
+        function updateCarBounce() {
+            // Iterar sobre TODOS los autos cargados
+            Object.values(loadedCars).forEach(carData => {
+                if (carData.container && carData.audio) {
+                    const bassLevel = getBassLevel(carData.id);
+                    carData.audio.bounce = bassLevel * carData.audio.bassSensitivity;
+
+                    // Solo aplicar rebote si es el auto activo o si estoy manejándolo
+                    if (activeCarContainer === carData.container || (!isPlayerMode && currentCarId === carData.id)) {
+                        carData.container.position.y = carData.baseY + carData.audio.bounce * 0.5;
+                    }
+                }
+            });
+
+            // Actualizar UI solo si estamos viendo el menú de música
+            if (currentAudioTarget && loadedCars[currentAudioTarget]) {
+                const carData = loadedCars[currentAudioTarget];
+                const bassLevel = getBassLevel(currentAudioTarget);
+                bassLevelSpan.textContent = Math.floor(bassLevel * 100);
+            }
+        }
+
+
+        function checkCarCollision(newPosition) {
+            if (!isPlayerMode) return false;
+
+            const playerRadius = 0.5;
+
+            // Verificar colisión con TODOS los autos dinámicamente
+            for (const carData of Object.values(loadedCars)) {
+                if (carData.collisionBox && carData.container) {
+                    const carPos = carData.container.position;
+                    const carRot = carData.container.rotation.y;
+
+                    const dx = newPosition.x - carPos.x;
+                    const dz = newPosition.z - carPos.z;
+
+                    const localX = dx * Math.cos(-carRot) - dz * Math.sin(-carRot);
+                    const localZ = dx * Math.sin(-carRot) + dz * Math.cos(-carRot);
+
+                    const halfWidth = carData.collisionBox.width / 2;
+                    const halfLength = carData.collisionBox.length / 2;
+
+                    if (Math.abs(localX) < halfWidth + playerRadius &&
+                        Math.abs(localZ) < halfLength + playerRadius) {
+                        return true; // Colisión detectada
+                    }
                 }
             }
 
-            gainNode.gain.value = maxVolume * volumeFactor;
-        }
-
-        // Función para hacer rebotar el auto con el bass
-        function updateCarBounce() {
-            if (!carContainer) return;
-
-            const bassLevel = getBassLevel();
-            bassLevelSpan.textContent = Math.floor(bassLevel * 100);
-
-            // Aplicar rebote basado en el nivel de bajos y sensibilidad
-            const targetBounce = bassLevel * bassSensitivity * 0.8;
-
-            // Suavizar el rebote
-            carBounce += (targetBounce - carBounce) * 0.3;
-
-            // Aplicar el rebote a la posición Y del auto
-            carContainer.position.y = carBaseY + carBounce;
-
-            // Añadir una ligera rotación cuando hay mucho bass
-            if (bassLevel > 0.6 && bassSensitivity > 0.3) {
-                const shake = Math.sin(Date.now() * 0.05) * bassLevel * 0.02;
-                carContainer.rotation.z = shake;
-            } else {
-                carContainer.rotation.z *= 0.9;
-            }
-        }
-
-        function checkCarCollision(newPosition) {
-            if (!carCollisionBox || !isPlayerMode) return false;
-
-            const carPos = carContainer.position;
-            const carRot = carContainer.rotation.y;
-
-            const dx = newPosition.x - carPos.x;
-            const dz = newPosition.z - carPos.z;
-
-            const localX = dx * Math.cos(-carRot) - dz * Math.sin(-carRot);
-            const localZ = dx * Math.sin(-carRot) + dz * Math.cos(-carRot);
-
-            const halfWidth = carCollisionBox.width / 2;
-            const halfLength = carCollisionBox.length / 2;
-
-            if (Math.abs(localX) < halfWidth + playerRadius &&
-                Math.abs(localZ) < halfLength + playerRadius) {
-                return true;
-            }
-
-            return false;
+            return false; // Sin colisión
         }
 
         // 7. CONTROLES
@@ -1335,6 +1596,29 @@
             if (e.key === 'ArrowRight') moveRight.active = true;
 
             if (key === 'f') {
+                // Detectar auto más cercano para abrir su menú de música
+                const playerPos = controls.getObject().position;
+
+                let closestCar = null;
+                let closestDistance = Infinity;
+
+                // Buscar en todos los autos cargados
+                Object.values(loadedCars).forEach(carData => {
+                    if (carData.container) {
+                        const distance = playerPos.distanceTo(carData.container.position);
+                        if (distance < closestDistance) {
+                            closestDistance = distance;
+                            closestCar = carData;
+                        }
+                    }
+                });
+
+                // Solo abrir si estás cerca de un auto (dentro de 10 unidades)
+                if (closestDistance < 10 && closestCar) {
+                    currentAudioTarget = closestCar.id;
+                    document.querySelector('#musicMenu h2').textContent = `🎵 Radio ${closestCar.name} - Bass Boost 🎵`;
+                }
+
                 if (musicMenu.style.display === 'none' || !musicMenu.style.display) {
                     musicMenu.style.display = 'block';
                     controls.unlock();
@@ -1343,60 +1627,124 @@
                 }
             }
 
-            if ((key === 'e' || e.key === 'Enter') && car) {
+            if ((key === 'e' || e.key === 'Enter') && Object.keys(loadedCars).length > 0) {
                 const playerPos = controls.getObject().position;
-                const distance = playerPos.distanceTo(carContainer.position);
 
-                if (isPlayerMode && distance < 5) {
-                    // Verificar si el auto está ocupado por otro jugador
-                    checkCarAvailability().then(isAvailable => {
-                        if (!isAvailable) {
-                            document.getElementById('status').innerText = '❌ Auto ocupado por otro jugador';
+                // Función para encontrar el auto más cercano dinámicamente
+                function getClosestCar() {
+                    let closestCar = null;
+                    let closestDistance = Infinity;
+
+                    Object.values(loadedCars).forEach(carData => {
+                        if (carData.container) {
+                            const distance = playerPos.distanceTo(carData.container.position);
+                            if (distance < closestDistance) {
+                                closestDistance = distance;
+                                closestCar = carData;
+                            }
+                        }
+                    });
+
+                    return { car: closestCar, distance: closestDistance };
+                }
+
+                const { car: selectedCarData, distance: closestDistance } = getClosestCar();
+
+                if (isPlayerMode && selectedCarData && closestDistance < 5) {
+                    // Intentar subir al auto más cercano
+                    checkCarAvailability(selectedCarData.id).then(result => {
+                        if (!result.canJoin) {
+                            document.getElementById('status').innerText = '❌ Auto lleno (máximo 4 personas)';
                             setTimeout(() => {
                                 document.getElementById('status').innerText = 'Modo Jugador - F para música';
                             }, 2000);
                             return;
                         }
 
-                        // Auto disponible, subirse
+                        // Subirse al auto con el rol asignado
+                        carRole = result.role;
+                        currentCarId = selectedCarData.id;
                         isPlayerMode = false;
+
+                        // Establecer el auto activo
+                        activeCarContainer = selectedCarData.container;
+                        activeCarCollisionBox = selectedCarData.collisionBox;
+                        activeCarBaseY = selectedCarData.baseY;
+
+                        // Actualizar variables legacy si es car1 o car2
+                        if (selectedCarData.id === 'car1') {
+                            carContainer = selectedCarData.container;
+                            carCollisionBox = selectedCarData.collisionBox;
+                            carBaseY = selectedCarData.baseY;
+                        } else if (selectedCarData.id === 'car2') {
+                            car2Container = selectedCarData.container;
+                            car2CollisionBox = selectedCarData.collisionBox;
+                            car2BaseY = selectedCarData.baseY;
+                        }
+
                         controls.unlock();
                         carSpeed = 0;
-                        carRotation = carContainer.rotation.y;
+                        carRotation = selectedCarData.container.rotation.y;
 
                         const camPos = controls.getObject().position.clone();
                         scene.remove(controls.getObject());
                         camera.position.copy(camPos);
                         scene.add(camera);
 
-                        document.getElementById('mode').innerText = 'Auto';
-                        document.getElementById('status').innerText = 'Conduciendo - F para música';
+                        if (carRole === 'driver') {
+                            document.getElementById('mode').innerText = `${selectedCarData.name} (Conductor)`;
+                            document.getElementById('status').innerText = '🚗 Manejando - F para música';
+                        } else {
+                            document.getElementById('mode').innerText = `${selectedCarData.name} (Pasajero)`;
+                            document.getElementById('status').innerText = '🪑 Pasajero - Solo disfrutas el viaje';
+                        }
 
-                        // Marcar el auto como ocupado en Firebase
+                        // Registrar en Firebase
                         if (isOnline) {
-                            const carOccupiedRef = ref(database, 'carGame/carOccupied');
-                            set(carOccupiedRef, currentPlayerId);
-                            // Liberar automáticamente si se desconecta
-                            onDisconnect(carOccupiedRef).remove();
+                            const occupantRef = ref(database, `carGame/${selectedCarData.id}Occupants/${currentPlayerId}`);
+                            set(occupantRef, {
+                                playerId: currentPlayerId,
+                                playerName: currentPlayerName,
+                                role: carRole,
+                                carId: selectedCarData.id,
+                                timestamp: Date.now()
+                            });
+                            onDisconnect(occupantRef).remove();
                         }
                     });
-                } else if (!isPlayerMode) {
+                } else if (!isPlayerMode && activeCarContainer) {
+                    // Bajarse del auto
                     isPlayerMode = true;
+                    carRole = null;
+                    const wasCarId = currentCarId; // Guardar antes de resetear
+                    currentCarId = null;
+
+                    // Calcular posición segura FUERA del auto (más lejos para evitar colisión)
+                    const safeDistance = 6; // Distancia segura fuera del auto
+                    const carRotation = activeCarContainer.rotation.y;
+
+                    // Posicionar al jugador a un lado del auto
+                    const exitX = activeCarContainer.position.x + Math.cos(carRotation) * safeDistance;
+                    const exitZ = activeCarContainer.position.z + Math.sin(carRotation) * safeDistance;
 
                     scene.remove(camera);
                     controls.getObject().position.set(
-                        carContainer.position.x + 3,
+                        exitX,
                         1.7,
-                        carContainer.position.z + 3
+                        exitZ
                     );
                     scene.add(controls.getObject());
 
                     document.getElementById('mode').innerText = 'Jugador';
                     document.getElementById('status').innerText = 'Modo Jugador - F para música';
 
-                    // Liberar el auto en Firebase
+                    // Resetear auto activo
+                    activeCarContainer = null;
+                    activeCarCollisionBox = null;
+
+                    // Eliminar de Firebase DE LA REFERENCIA CORRECTA
                     if (isOnline) {
-                        remove(ref(database, 'carGame/carOccupied'));
+                        remove(ref(database, `carGame/${wasCarId}Occupants/${currentPlayerId}`));
                     }
                 }
             }
@@ -1419,33 +1767,40 @@
         let carSpeed = 0;
         let carRotation = 0;
 
+        let frameDelta = 1 / 60;
+        let lastFrameTime = performance.now();
+        const carNetVelocity = new THREE.Vector3(0, 0, 0);
+        const CAR_NET_SPRING = 55;
+        const CAR_NET_DAMPING = 12;
+
         const velocity = new THREE.Vector3();
         const direction = new THREE.Vector3();
 
         // Función para interpolar suavemente otros jugadores
         function interpolateOtherPlayers() {
-            let someoneElseDriving = false;
-            let drivingPlayerData = null;
+            // Rastrear QUÉ JUGADOR está manejando QUÉ AUTO dinámicamente
+            const carDrivingData = {};
 
             Object.keys(otherPlayers).forEach(playerId => {
                 const player = otherPlayers[playerId];
                 if (player.targetPos && player.model) {
-                    // Interpolar hacia la posición objetivo con predicción de velocidad
-                    const lerpFactor = 0.15; // Factor de interpolación más suave
+                    const lerpFactor = 0.15;
 
                     // Aplicar velocidad para predicción
-                    const predictedPos = player.targetPos.clone().add(player.velocity.clone().multiplyScalar(0.1));
+                    const predictedPos = player.targetPos.clone().add(player.velocity.clone().multiplyScalar(0.12));
 
-                    // Interpolación suave de posición del jugador caminando
+                    // Interpolar posición del jugador caminando
                     player.model.position.lerp(predictedPos, lerpFactor);
 
-                    // Si está en modo auto, usar el auto existente
+                    // Si está en modo auto, guardar datos para ESTE auto específico
                     if (player.data.mode === 'car') {
-                        someoneElseDriving = true;
-                        drivingPlayerData = {
+                        const playerCarId = player.data.carId || 'car1';
+                        carDrivingData[playerCarId] = {
                             pos: predictedPos,
                             targetPos: player.targetPos,
-                            rotation: player.targetRotation
+                            predictedPos: predictedPos,
+                            rotation: player.targetRotation,
+                            carId: playerCarId
                         };
                     }
 
@@ -1454,30 +1809,48 @@
                 }
             });
 
-            // Controlar el auto real según quién lo está manejando
-            if (carContainer) {
-                if (!isPlayerMode) {
-                    // Yo lo estoy manejando, funciona normal
-                    // No hacer nada aquí
-                } else if (someoneElseDriving && drivingPlayerData) {
-                    // Otro jugador lo está manejando, mover el auto a su posición
-                    carContainer.position.lerp(drivingPlayerData.targetPos, 0.15);
+            // Controlar TODOS los autos dinámicamente
+            Object.values(loadedCars).forEach(carData => {
+                if (carData.container) {
+                    // Si YO estoy manejando ESTE auto, no sobre-escribir
+                    if (!isPlayerMode && carRole === 'driver' && currentCarId === carData.id) {
+                        // YO lo manejo, skip
+                    } else if (carDrivingData[carData.id]) {
+                        // OTRO jugador lo está manejando
+                        const drivingData = carDrivingData[carData.id];
+                        const carTarget = drivingData.predictedPos || drivingData.targetPos;
 
-                    // Interpolar rotación
-                    const currentRot = carContainer.rotation.y;
-                    const targetRot = drivingPlayerData.rotation;
-                    let rotDiff = targetRot - currentRot;
-                    if (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
-                    if (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
-                    carContainer.rotation.y = currentRot + rotDiff * 0.15;
+                        const dx = carTarget.x - carData.container.position.x;
+                        const dz = carTarget.z - carData.container.position.z;
+
+                        carNetVelocity.x += dx * CAR_NET_SPRING * frameDelta;
+                        carNetVelocity.z += dz * CAR_NET_SPRING * frameDelta;
+
+                        const dampingFactor = Math.exp(-CAR_NET_DAMPING * frameDelta);
+                        carNetVelocity.x *= dampingFactor;
+                        carNetVelocity.z *= dampingFactor;
+
+                        carData.container.position.x += carNetVelocity.x * frameDelta;
+                        carData.container.position.z += carNetVelocity.z * frameDelta;
+
+                        const currentRot = carData.container.rotation.y;
+                        const targetRot = drivingData.rotation;
+                        let rotDiff = targetRot - currentRot;
+                        if (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
+                        if (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
+                        carData.container.rotation.y = currentRot + rotDiff * 0.15;
+                    }
                 }
-                // Si nadie lo está manejando, el auto se queda donde está
-            }
+            });
         }
 
         // 8. LOOP DE ANIMACIÓN
         function update() {
             requestAnimationFrame(update);
+
+            const now = performance.now();
+            frameDelta = Math.min(0.05, (now - lastFrameTime) / 1000);
+            lastFrameTime = now;
 
             if (isPlayerMode) {
                 direction.z = Number(moveForward.active) - Number(moveBackward.active);
@@ -1508,17 +1881,31 @@
 
                 controls.getObject().position.y = 1.7;
 
-                if (car) {
-                    const distance = controls.getObject().position.distanceTo(carContainer.position);
-                    if (distance < 5) {
-                        document.getElementById('status').innerText = 'Presiona E para entrar al auto';
-                    } else if (document.getElementById('status').innerText.includes('Presiona E')) {
-                        document.getElementById('status').innerText = 'Modo Jugador - F para música';
+                // Mostrar mensaje si está cerca de algún auto
+                let closestCar = null;
+                let closestDistance = Infinity;
+
+                // Buscar el auto más cercano dinámicamente
+                Object.values(loadedCars).forEach(carData => {
+                    if (carData.container) {
+                        const distance = controls.getObject().position.distanceTo(carData.container.position);
+                        if (distance < closestDistance) {
+                            closestDistance = distance;
+                            closestCar = carData;
+                        }
                     }
+                });
+
+                if (closestDistance < 5 && closestCar) {
+                    document.getElementById('status').innerText = `Presiona E para entrar al ${closestCar.name}`;
+                } else if (document.getElementById('status').innerText.includes('Presiona E')) {
+                    document.getElementById('status').innerText = 'Modo Jugador - F para música';
                 }
 
+
             } else {
-                if (carContainer) {
+                if (activeCarContainer && carRole === 'driver') {
+                    // Solo el conductor puede controlar el auto
                     if (moveForward.active) carSpeed += 0.01;
                     if (moveBackward.active) carSpeed -= 0.01;
                     if (moveLeft.active) carRotation += 0.03;
@@ -1526,17 +1913,29 @@
 
                     carSpeed *= 0.95;
 
-                    carContainer.rotation.y = carRotation;
-                    carContainer.position.x += Math.sin(carRotation) * carSpeed;
-                    carContainer.position.z += Math.cos(carRotation) * carSpeed;
+                    activeCarContainer.rotation.y = carRotation;
+                    activeCarContainer.position.x += Math.sin(carRotation) * carSpeed;
+                    activeCarContainer.position.z += Math.cos(carRotation) * carSpeed;
 
                     const camOffset = new THREE.Vector3(
-                        carContainer.position.x - Math.sin(carRotation) * 12,
-                        carContainer.position.y + 5,
-                        carContainer.position.z - Math.cos(carRotation) * 12
+                        activeCarContainer.position.x - Math.sin(carRotation) * 12,
+                        activeCarContainer.position.y + 5,
+                        activeCarContainer.position.z - Math.cos(carRotation) * 12
                     );
                     camera.position.lerp(camOffset, 0.1);
-                    camera.lookAt(carContainer.position);
+                    camera.lookAt(activeCarContainer.position);
+                } else if (activeCarContainer && carRole === 'passenger') {
+                    // Pasajero: cámara sigue el auto pero no controla
+                    carSpeed *= 0.95;
+                    carRotation = activeCarContainer.rotation.y;
+
+                    const camOffset = new THREE.Vector3(
+                        activeCarContainer.position.x - Math.sin(carRotation) * 12,
+                        activeCarContainer.position.y + 5,
+                        activeCarContainer.position.z - Math.cos(carRotation) * 12
+                    );
+                    camera.position.lerp(camOffset, 0.1);
+                    camera.lookAt(activeCarContainer.position);
                 }
             }
 
