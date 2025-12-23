@@ -330,11 +330,11 @@
         </div>
     </div>
 
-    <!-- YouTube Player (oculto) -->
-    <div id="youtubePlayer" style="position: absolute; top: -9999px; left: -9999px; width: 1px; height: 1px;"></div>
-
-    <!-- YouTube IFrame API -->
-    <script src="https://www.youtube.com/iframe_api"></script>
+    <!-- YouTube Player (oculto) - iframe simple -->
+    <iframe id="youtubePlayer"
+        style="position: absolute; top: -9999px; left: -9999px; width: 1px; height: 1px; border: none;"
+        allow="autoplay">
+    </iframe>
 
     <script type="importmap">
         {
@@ -749,8 +749,7 @@
                         if (musicData.type === 'youtube') {
                             const videoID = getYouTubeVideoID(musicData.url);
                             if (videoID) {
-                                await initYouTubePlayer(videoID);
-                                currentMusicType = 'youtube';
+                                playYouTube(videoID);
                                 musicInfo.textContent = `🎵 ${musicData.playerName} está reproduciendo YouTube`;
                             }
                         } else {
@@ -1067,68 +1066,20 @@
             return match ? match[1] : null;
         }
 
-        // Callback cuando la API de YouTube está lista
-        window.onYouTubeIframeAPIReady = function () {
-            youtubePlayerReady = true;
-            console.log('YouTube API lista');
-        };
-
-        // Inicializar YouTube Player
-        function initYouTubePlayer(videoID) {
-            return new Promise((resolve, reject) => {
-                if (!youtubePlayerReady) {
-                    reject(new Error('YouTube API no está lista'));
-                    return;
-                }
-
-                // Destruir player anterior si existe
-                if (youtubePlayer) {
-                    youtubePlayer.destroy();
-                }
-
-                youtubePlayer = new YT.Player('youtubePlayer', {
-                    height: '1',
-                    width: '1',
-                    videoId: videoID,
-                    playerVars: {
-                        autoplay: 1,
-                        controls: 0,
-                        disablekb: 1,
-                        fs: 0,
-                        modestbranding: 1,
-                        playsinline: 1,
-                        rel: 0,
-                        showinfo: 0,
-                        loop: 1,
-                        playlist: videoID // Para loop
-                    },
-                    events: {
-                        'onReady': (event) => {
-                            event.target.setVolume(maxVolume * 100);
-                            event.target.playVideo();
-                            resolve();
-                        },
-                        'onError': (event) => {
-                            reject(new Error('Error al cargar video de YouTube'));
-                        },
-                        'onStateChange': (event) => {
-                            if (event.data === YT.PlayerState.PLAYING) {
-                                isPlaying = true;
-                            } else if (event.data === YT.PlayerState.ENDED) {
-                                event.target.playVideo(); // Loop manual
-                            }
-                        }
-                    }
-                });
-            });
+        // Reproducir YouTube con iframe simple
+        function playYouTube(videoID) {
+            const iframe = document.getElementById('youtubePlayer');
+            // URL del embed con autoplay=1 y loop
+            iframe.src = `https://www.youtube.com/embed/${videoID}?autoplay=1&loop=1&playlist=${videoID}&controls=0&disablekb=1&fs=0&modestbranding=1&rel=0&showinfo=0`;
+            isPlaying = true;
+            currentMusicType = 'youtube';
         }
 
         // Detener YouTube
         function stopYouTube() {
-            if (youtubePlayer) {
-                youtubePlayer.stopVideo();
-                isPlaying = false;
-            }
+            const iframe = document.getElementById('youtubePlayer');
+            iframe.src = '';
+            isPlaying = false;
         }
 
         // Reproducir audio
@@ -1225,8 +1176,7 @@
                     }
 
                     musicStatusText.textContent = '⏳ Cargando desde YouTube...';
-                    await initYouTubePlayer(videoID);
-                    currentMusicType = 'youtube';
+                    playYouTube(videoID);
 
                     musicStatusText.textContent = '🎵 ¡Reproduciendo desde YouTube!';
                     musicInfo.textContent = '🎵 YouTube Music activa';
