@@ -427,6 +427,28 @@
             gainNode: null,
             bounce: 0
         };
+          let car5Audio = {
+            analyser: null,
+            dataArray: null,
+            audioSource: null,
+            audioBuffer: null,
+            maxVolume: 1.0,
+            isPlaying: false,
+            bassSensitivity: 0.5,
+            gainNode: null,
+            bounce: 0
+        };
+          let car6Audio = {
+            analyser: null,
+            dataArray: null,
+            audioSource: null,
+            audioBuffer: null,
+            maxVolume: 1.0,
+            isPlaying: false,
+            bassSensitivity: 0.5,
+            gainNode: null,
+            bounce: 0
+        };
         // ========================================
         // 🚗 CONFIGURACIÓN DE AUTOS - ¡EDITA AQUÍ!
         // ========================================
@@ -434,39 +456,57 @@
         const carsConfig = [
             {
                 id: 'car1',
-                name: 'Auto 1',
+                name: 'El azul',
                 modelUrl: 'https://raw.githubusercontent.com/yoyoyogogo/juego/main/music%20car%203d%20model%20(2).glb',
-                position: { x: 0, y: 1.5, z: -10 },
+                position: { x: 0, y: 1.7, z: -10 },
                 rotation: { x: 0, y: -Math.PI / 2, z: 0 }, // -90° para que mire adelante como en la versión anterior
-                scale: 2,
+                scale: 1.5,
                 audio: car1Audio
             },
             {
                 id: 'car2',
-                name: 'Camión',
+                name: 'La camiona',
                 modelUrl: 'https://raw.githubusercontent.com/yoyoyogogo/camion/main/Sin_nombre.glb',
-                position: { x: 15, y: 1.5, z: -10 },
+                position: { x: 5, y: 2.5, z: -10 },
                 rotation: { x: 0, y: -Math.PI / 2, z: 0 }, // -90° para que mire adelante
-                scale: 2,
+                scale: 2.4,
                 audio: car2Audio
             },
             {
                 id: 'car3',
-                name: 'Camión2',
+                name: 'El neforepi',
                 modelUrl: 'https://raw.githubusercontent.com/yoyoyogogo/GTR-M3-/main/racing%20car%203d%20model.glb',
-                position: { x: 45, y: 1.5, z: -10 },
+                position: { x: 15, y: 1.5, z: -10 },
                 rotation: { x: 0, y: 0, z: 0 }, // Ajustado para que mire hacia adelante
-                scale: 2,
+                scale: 1.5,
                 audio: car3Audio
             },
             {
                 id: 'car4',
-                name: 'Camióna',
+                name: 'El dorado',
                 modelUrl: 'https://raw.githubusercontent.com/yoyoyogogo/camionadora/main/speaker%20rig%20car%203d%20model.glb',
-                position: { x: 20, y: 1.5, z: -10 },
+                position: { x: 20, y: 3.5, z: -10 },
+                rotation: { x: 0, y: -Math.PI /2, z: 0 }, // Ajustado para que mire hacia adelante
+                scale: 2,
+                audio: car4Audio
+            },
+            {
+                id: 'car5',
+                name: 'El Pebeseta',
+                modelUrl: 'https://raw.githubusercontent.com/yoyoyogogo/pebeseta/main/stylized%20plant%203d%20model.glb',
+                position: { x: 25, y: 1.5, z: -10 },
                 rotation: { x: 0, y: -Math.PI /2, z: 0 }, // Ajustado para que mire hacia adelante
                 scale: 1,
-                audio: car4Audio
+                audio: car5Audio
+            },
+            {
+                id: 'car6',
+                name: 'El azulbug',
+                modelUrl: 'https://raw.githubusercontent.com/yoyoyogogo/otrocar/main/rooftop%20speaker%20car%203d%20model.glb',
+                position: { x: 30, y: 3.5, z: -10 },
+                rotation: { x: 0, y: -Math.PI /2, z: 0 }, // Ajustado para que mire hacia adelante
+                scale: 2,
+                audio: car6Audio
             }
             // Para agregar más autos, copia y pega este bloque:
             // {
@@ -905,7 +945,6 @@
             const loadedMusicURLs = {};
             const loadingInProgress = {}; // Prevenir cargas simultáneas
             const lastLoadTime = {}; // Evitar recargas rápidas
-            const carMusicState = {}; // Estado de música por auto
 
             // Crear listeners dinámicos para TODOS los autos
             carsConfig.forEach(config => {
@@ -1401,8 +1440,8 @@
             const newSensitivity = e.target.value / 100;
             bassValue.textContent = e.target.value;
 
-            if (currentAudioTarget) {
-                const audioObj = (currentAudioTarget === 'car2') ? car2Audio : car1Audio;
+            if (currentAudioTarget && loadedCars[currentAudioTarget]) {
+                const audioObj = loadedCars[currentAudioTarget].audio;
                 audioObj.bassSensitivity = newSensitivity;
             }
         });
@@ -1425,7 +1464,7 @@
                 playBtn.disabled = true;
                 playBtn.textContent = '⏳ Cargando...';
 
-                const audioObj = (currentAudioTarget === 'car2') ? car2Audio : car1Audio;
+                const audioObj = loadedCars[currentAudioTarget].audio;
 
                 //Detener cualquier reproducción anterior EN ESTE AUTO
                 if (audioObj.audioSource) {
@@ -1567,15 +1606,18 @@
                     const bassLevel = getBassLevel(carData.id);
                     const sensitivity = carData.audio.bassSensitivity || 0.5;
 
-                    // Objetivo de rebote basado en nivel de bass y sensibilidad (similar al código viejo)
-                    const targetBounce = bassLevel * sensitivity * 0.8;
+                    // Intensidad crece más fuerte que lineal con la sensibilidad
+                    const intensity = sensitivity;
+                    const intensityPower = Math.pow(intensity, 1.5);
+                    const targetBounce = bassLevel * intensityPower * 1.5;
 
                     if (typeof carData.audio.bounce !== 'number') {
                         carData.audio.bounce = 0;
                     }
 
-                    // Suavizar el rebote para que no sea brusco
-                    carData.audio.bounce += (targetBounce - carData.audio.bounce) * 0.3;
+                    // A menor sensibilidad, más suave; a mayor sensibilidad, más brusco
+                    const smoothFactor = 0.45 - intensity * 0.3; // ~0.45 en 0, ~0.30 en 0.5, ~0.15 en 1
+                    carData.audio.bounce += (targetBounce - carData.audio.bounce) * smoothFactor;
 
                     // Aplicar rebote vertical SIEMPRE, para que todos los jugadores lo vean
                     carData.container.position.y = carData.baseY + carData.audio.bounce;
@@ -1585,7 +1627,8 @@
                         if (carData._shakePhase === undefined) {
                             carData._shakePhase = Math.random() * Math.PI * 2;
                         }
-                        const shake = Math.sin(performance.now() * 0.05 + carData._shakePhase) * bassLevel * 0.02;
+                        const shakeIntensity = 0.5 + sensitivity;
+                        const shake = Math.sin(performance.now() * 0.05 + carData._shakePhase) * bassLevel * 0.02 * shakeIntensity;
                         carData.container.rotation.z = shake;
                     } else {
                         carData.container.rotation.z *= 0.9;
@@ -1666,6 +1709,43 @@
                 if (closestDistance < 10 && closestCar) {
                     currentAudioTarget = closestCar.id;
                     document.querySelector('#musicMenu h2').textContent = `🎵 Radio ${closestCar.name} - Bass Boost 🎵`;
+
+                    const state = carMusicState[currentAudioTarget];
+                    if (state) {
+                        musicUrl.value = state.url || '';
+
+                        const vol = (typeof state.volume === 'number')
+                            ? state.volume
+                            : (loadedCars[currentAudioTarget] && loadedCars[currentAudioTarget].audio
+                                ? loadedCars[currentAudioTarget].audio.maxVolume
+                                : 1.0);
+
+                        const sens = (typeof state.bassSensitivity === 'number')
+                            ? state.bassSensitivity
+                            : (loadedCars[currentAudioTarget] && loadedCars[currentAudioTarget].audio
+                                ? loadedCars[currentAudioTarget].audio.bassSensitivity
+                                : 0.5);
+
+                        volumeSlider.value = Math.round(vol * 100);
+                        volumeValue.textContent = volumeSlider.value;
+                        bassSensitivitySlider.value = Math.round(sens * 100);
+                        bassValue.textContent = bassSensitivitySlider.value;
+
+                        if (loadedCars[currentAudioTarget] && loadedCars[currentAudioTarget].audio) {
+                            const audioObj = loadedCars[currentAudioTarget].audio;
+                            audioObj.maxVolume = vol;
+                            audioObj.bassSensitivity = sens;
+                            if (audioObj.audioElement) {
+                                audioObj.audioElement.volume = vol;
+                            }
+                        }
+                    } else {
+                        musicUrl.value = '';
+                        volumeSlider.value = 50;
+                        volumeValue.textContent = '50';
+                        bassSensitivitySlider.value = 50;
+                        bassValue.textContent = '50';
+                    }
                 }
 
                 if (musicMenu.style.display === 'none' || !musicMenu.style.display) {
