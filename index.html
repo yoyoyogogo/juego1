@@ -416,7 +416,17 @@
             gainNode: null,
             bounce: 0
         };
-
+        let car4Audio = {
+            analyser: null,
+            dataArray: null,
+            audioSource: null,
+            audioBuffer: null,
+            maxVolume: 1.0,
+            isPlaying: false,
+            bassSensitivity: 0.5,
+            gainNode: null,
+            bounce: 0
+        };
         // ========================================
         // 🚗 CONFIGURACIÓN DE AUTOS - ¡EDITA AQUÍ!
         // ========================================
@@ -428,7 +438,7 @@
                 modelUrl: 'https://raw.githubusercontent.com/yoyoyogogo/juego/main/music%20car%203d%20model%20(2).glb',
                 position: { x: 0, y: 1.5, z: -10 },
                 rotation: { x: 0, y: -Math.PI / 2, z: 0 }, // -90° para que mire adelante como en la versión anterior
-                scale: 1,
+                scale: 2,
                 audio: car1Audio
             },
             {
@@ -437,7 +447,7 @@
                 modelUrl: 'https://raw.githubusercontent.com/yoyoyogogo/camion/main/Sin_nombre.glb',
                 position: { x: 15, y: 1.5, z: -10 },
                 rotation: { x: 0, y: -Math.PI / 2, z: 0 }, // -90° para que mire adelante
-                scale: 1,
+                scale: 2,
                 audio: car2Audio
             },
             {
@@ -446,8 +456,17 @@
                 modelUrl: 'https://raw.githubusercontent.com/yoyoyogogo/GTR-M3-/main/racing%20car%203d%20model.glb',
                 position: { x: 45, y: 1.5, z: -10 },
                 rotation: { x: 0, y: 0, z: 0 }, // Ajustado para que mire hacia adelante
-                scale: 1,
+                scale: 2,
                 audio: car3Audio
+            },
+            {
+                id: 'car4',
+                name: 'Camióna',
+                modelUrl: 'https://raw.githubusercontent.com/yoyoyogogo/camionadora/main/speaker%20rig%20car%203d%20model.glb',
+                position: { x: 20, y: 1.5, z: -10 },
+                rotation: { x: 0, y: -Math.PI /2, z: 0 }, // Ajustado para que mire hacia adelante
+                scale: 1,
+                audio: car4Audio
             }
             // Para agregar más autos, copia y pega este bloque:
             // {
@@ -1318,24 +1337,37 @@
             });
         }
 
-        // Obtener nivel de bajos - ACTUALIZADO PARA carId
+        // Obtener nivel de bajos EMULADO - sin analizar el audio real
         function getBassLevel(carId = 'car1') {
-            const audioObj = (carId === 'car2') ? car2Audio : car1Audio;
-
-            if (!audioObj.analyser || !audioObj.isPlaying) return 0;
-
-            audioObj.analyser.getByteFrequencyData(audioObj.dataArray);
-
-            // Analizar solo las frecuencias bajas (índices 0-8 aproximadamente 0-600Hz)
-            let bassSum = 0;
-            const bassRange = 8;
-            for (let i = 0; i < bassRange; i++) {
-                bassSum += audioObj.dataArray[i];
+            // Resolver objeto de audio del auto
+            let audioObj;
+            if (loadedCars[carId] && loadedCars[carId].audio) {
+                audioObj = loadedCars[carId].audio;
+            } else if (carId === 'car2') {
+                audioObj = car2Audio;
+            } else if (carId === 'car3') {
+                audioObj = car3Audio;
+            } else {
+                audioObj = car1Audio;
             }
 
-            // Normalizar a 0-1
-            const bassAverage = bassSum / (bassRange * 255);
-            return bassAverage;
+            if (!audioObj || !audioObj.isPlaying) return 0;
+
+            // Generar una onda senoidal suave basada en el tiempo para simular el "bass"
+            const now = performance.now() / 200; // velocidad del pulso
+
+            // Fase aleatoria por auto para que no se muevan todos igual
+            if (audioObj._bassPhase === undefined) {
+                audioObj._bassPhase = Math.random() * Math.PI * 2;
+            }
+
+            const baseWave = (Math.sin(now + audioObj._bassPhase) + 1) / 2; // 0..1
+            const jitter = (Math.random() - 0.5) * 0.2; // pequeña variación aleatoria
+
+            let level = baseWave + jitter;
+            if (level < 0) level = 0;
+            if (level > 1) level = 1;
+            return level;
         }
 
         // Sistema de música
@@ -1527,29 +1559,46 @@
             });
         }
 
-        // Función para hacer rebotar el auto con el bass - TODOS LOS AUTOS DINÁMICAMENTE
+        // Función para hacer rebotar los autos con el bass - TODOS LOS AUTOS DINÁMICAMENTE
         function updateCarBounce() {
             // Iterar sobre TODOS los autos cargados
             Object.values(loadedCars).forEach(carData => {
                 if (carData.container && carData.audio) {
                     const bassLevel = getBassLevel(carData.id);
-                    carData.audio.bounce = bassLevel * carData.audio.bassSensitivity;
+                    const sensitivity = carData.audio.bassSensitivity || 0.5;
 
-                    // Solo aplicar rebote si es el auto activo o si estoy manejándolo
-                    if (activeCarContainer === carData.container || (!isPlayerMode && currentCarId === carData.id)) {
-                        carData.container.position.y = carData.baseY + carData.audio.bounce * 0.5;
+                    // Objetivo de rebote basado en nivel de bass y sensibilidad (similar al código viejo)
+                    const targetBounce = bassLevel * sensitivity * 0.8;
+
+                    if (typeof carData.audio.bounce !== 'number') {
+                        carData.audio.bounce = 0;
+                    }
+
+                    // Suavizar el rebote para que no sea brusco
+                    carData.audio.bounce += (targetBounce - carData.audio.bounce) * 0.3;
+
+                    // Aplicar rebote vertical SIEMPRE, para que todos los jugadores lo vean
+                    carData.container.position.y = carData.baseY + carData.audio.bounce;
+
+                    // Pequeña rotación en Z cuando hay mucho bass, visible también desde fuera
+                    if (bassLevel > 0.6 && sensitivity > 0.3) {
+                        if (carData._shakePhase === undefined) {
+                            carData._shakePhase = Math.random() * Math.PI * 2;
+                        }
+                        const shake = Math.sin(performance.now() * 0.05 + carData._shakePhase) * bassLevel * 0.02;
+                        carData.container.rotation.z = shake;
+                    } else {
+                        carData.container.rotation.z *= 0.9;
                     }
                 }
             });
 
             // Actualizar UI solo si estamos viendo el menú de música
             if (currentAudioTarget && loadedCars[currentAudioTarget]) {
-                const carData = loadedCars[currentAudioTarget];
                 const bassLevel = getBassLevel(currentAudioTarget);
                 bassLevelSpan.textContent = Math.floor(bassLevel * 100);
             }
         }
-
 
         function checkCarCollision(newPosition) {
             if (!isPlayerMode) return false;
