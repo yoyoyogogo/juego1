@@ -556,32 +556,33 @@
         renderer.shadowMap.enabled = true;
         document.body.appendChild(renderer.domElement);
 
-        // 2. CÁMARA
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.set(0, 2, 5);
+// 2. CÁMARA
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+camera.position.set(0, 2, 5);
 
-        // 3. CONTROLES DE POINTER LOCK
-        const controls = new PointerLockControls(camera, document.body);
-        scene.add(controls.getObject());
+// 3. CONTROLES DE POINTER LOCK
+const controls = new PointerLockControls(camera, document.body);
+scene.add(controls.getObject());
 
-        let isPlayerMode = true;
-        const playerSpeed = 0.15;
-        const playerRadius = 0.5;
-        const moveForward = { active: false };
-        const moveBackward = { active: false };
-        const moveLeft = { active: false };
-        const moveRight = { active: false };
+let isPlayerMode = true;
+let isMusicMenuOpen = false;
+const playerSpeed = 0.15;
 
-        document.addEventListener('click', () => {
-            if (isPlayerMode && !controls.isLocked) {
-                controls.lock();
-            }
-        });
+const playerRadius = 0.6; // Aumentado el radio de entrada al vehículo
+const moveForward = { active: false };
+const moveBackward = { active: false };
+const moveLeft = { active: false };
+const moveRight = { active: false };
 
-        controls.addEventListener('lock', () => {
-            document.getElementById('crosshair').style.display = 'block';
-        });
+document.addEventListener('click', () => {
+    if (isPlayerMode && !controls.isLocked && !isMusicMenuOpen) {
+        controls.lock();
+    }
+});
 
+controls.addEventListener('lock', () => {
+    document.getElementById('crosshair').style.display = 'block';
+});
         controls.addEventListener('unlock', () => {
             document.getElementById('crosshair').style.display = 'none';
         });
@@ -1555,6 +1556,7 @@
 
         closeBtn.addEventListener('click', () => {
             musicMenu.style.display = 'none';
+            isMusicMenuOpen = false;
         });
 
         // Función para ajustar volumen según distancia - TODOS LOS AUTOS DINÁMICAMENTE
@@ -1688,71 +1690,87 @@
             if (e.key === 'ArrowRight') moveRight.active = true;
 
             if (key === 'f') {
-                // Detectar auto más cercano para abrir su menú de música
-                const playerPos = controls.getObject().position;
+                let targetCar = null;
 
-                let closestCar = null;
-                let closestDistance = Infinity;
+                // Si estamos dentro de un auto, siempre usar ese auto para el menú
+                if (!isPlayerMode && currentCarId && loadedCars[currentCarId] && loadedCars[currentCarId].container) {
+                    targetCar = loadedCars[currentCarId];
+                } else {
+                    // Modo jugador: detectar auto más cercano para abrir su menú de música
+                    const playerPos = controls.getObject().position;
 
-                // Buscar en todos los autos cargados
-                Object.values(loadedCars).forEach(carData => {
-                    if (carData.container) {
-                        const distance = playerPos.distanceTo(carData.container.position);
-                        if (distance < closestDistance) {
-                            closestDistance = distance;
-                            closestCar = carData;
-                        }
-                    }
-                });
+                    let closestCar = null;
+                    let closestDistance = Infinity;
 
-                // Solo abrir si estás cerca de un auto (dentro de 10 unidades)
-                if (closestDistance < 10 && closestCar) {
-                    currentAudioTarget = closestCar.id;
-                    document.querySelector('#musicMenu h2').textContent = `🎵 Radio ${closestCar.name} - Bass Boost 🎵`;
-
-                    const state = carMusicState[currentAudioTarget];
-                    if (state) {
-                        musicUrl.value = state.url || '';
-
-                        const vol = (typeof state.volume === 'number')
-                            ? state.volume
-                            : (loadedCars[currentAudioTarget] && loadedCars[currentAudioTarget].audio
-                                ? loadedCars[currentAudioTarget].audio.maxVolume
-                                : 1.0);
-
-                        const sens = (typeof state.bassSensitivity === 'number')
-                            ? state.bassSensitivity
-                            : (loadedCars[currentAudioTarget] && loadedCars[currentAudioTarget].audio
-                                ? loadedCars[currentAudioTarget].audio.bassSensitivity
-                                : 0.5);
-
-                        volumeSlider.value = Math.round(vol * 100);
-                        volumeValue.textContent = volumeSlider.value;
-                        bassSensitivitySlider.value = Math.round(sens * 100);
-                        bassValue.textContent = bassSensitivitySlider.value;
-
-                        if (loadedCars[currentAudioTarget] && loadedCars[currentAudioTarget].audio) {
-                            const audioObj = loadedCars[currentAudioTarget].audio;
-                            audioObj.maxVolume = vol;
-                            audioObj.bassSensitivity = sens;
-                            if (audioObj.audioElement) {
-                                audioObj.audioElement.volume = vol;
+                    // Buscar en todos los autos cargados
+                    Object.values(loadedCars).forEach(carData => {
+                        if (carData.container) {
+                            const distance = playerPos.distanceTo(carData.container.position);
+                            if (distance < closestDistance) {
+                                closestDistance = distance;
+                                closestCar = carData;
                             }
                         }
-                    } else {
-                        musicUrl.value = '';
-                        volumeSlider.value = 50;
-                        volumeValue.textContent = '50';
-                        bassSensitivitySlider.value = 50;
-                        bassValue.textContent = '50';
+                    });
+
+                    // Solo permitir menú si estás cerca de un auto (dentro de 10 unidades)
+                    if (closestCar && closestDistance < 10) {
+                        targetCar = closestCar;
                     }
+                }
+
+                // Si no hay ningún auto válido, no abrir el menú
+                if (!targetCar) {
+                    return;
+                }
+
+                currentAudioTarget = targetCar.id;
+                document.querySelector('#musicMenu h2').textContent = `🎵 Radio ${targetCar.name} - Bass Boost 🎵`;
+
+                const state = carMusicState[currentAudioTarget];
+                if (state) {
+                    musicUrl.value = state.url || '';
+
+                    const vol = (typeof state.volume === 'number')
+                        ? state.volume
+                        : (loadedCars[currentAudioTarget] && loadedCars[currentAudioTarget].audio
+                            ? loadedCars[currentAudioTarget].audio.maxVolume
+                            : 1.0);
+
+                    const sens = (typeof state.bassSensitivity === 'number')
+                        ? state.bassSensitivity
+                        : (loadedCars[currentAudioTarget] && loadedCars[currentAudioTarget].audio
+                            ? loadedCars[currentAudioTarget].audio.bassSensitivity
+                            : 0.5);
+
+                    volumeSlider.value = Math.round(vol * 100);
+                    volumeValue.textContent = volumeSlider.value;
+                    bassSensitivitySlider.value = Math.round(sens * 100);
+                    bassValue.textContent = bassSensitivitySlider.value;
+
+                    if (loadedCars[currentAudioTarget] && loadedCars[currentAudioTarget].audio) {
+                        const audioObj = loadedCars[currentAudioTarget].audio;
+                        audioObj.maxVolume = vol;
+                        audioObj.bassSensitivity = sens;
+                        if (audioObj.audioElement) {
+                            audioObj.audioElement.volume = vol;
+                        }
+                    }
+                } else {
+                    musicUrl.value = '';
+                    volumeSlider.value = 50;
+                    volumeValue.textContent = '50';
+                    bassSensitivitySlider.value = 50;
+                    bassValue.textContent = '50';
                 }
 
                 if (musicMenu.style.display === 'none' || !musicMenu.style.display) {
                     musicMenu.style.display = 'block';
+                    isMusicMenuOpen = true;
                     controls.unlock();
                 } else {
                     musicMenu.style.display = 'none';
+                    isMusicMenuOpen = false;
                 }
             }
 
@@ -1779,7 +1797,8 @@
 
                 const { car: selectedCarData, distance: closestDistance } = getClosestCar();
 
-                if (isPlayerMode && selectedCarData && closestDistance < 5) {
+                if (isPlayerMode && selectedCarData && closestDistance < 6) {
+
                     // Intentar subir al auto más cercano
                     checkCarAvailability(selectedCarData.id).then(result => {
                         if (!result.canJoin) {
